@@ -1,0 +1,9 @@
+{
+  "name": "scrabble",
+  "version": "0.1.0",
+  "description": "Scrabble plus AI!",
+  "main": "index.js",
+  "repository": "https://github.com/tmazeika/scrabble",
+  "authors": ["Justine Luo", "TJ Mazeika"],
+  "private": true
+}
