@@ -1,4 +1,14 @@
-import {dictionary} from './dictionary.js';
+async function loadDictionary(): Promise<Letter[][]> {
+  const resp = await fetch('/scrabble/dictionary.txt');
+  const text = await resp.text();
+  return text.split('\n')
+    .filter(line => line !== '')
+    .map(line => [...line].map(letter => letter as Letter));
+}
+
+loadDictionary().then(dict => {
+  console.log(dict[5]);
+});
 
 const MAX_RACK_LEN = 7;
 const BOARD_SIZE = 15;
@@ -46,33 +56,33 @@ interface LetterMap {
 type Letter = keyof LetterMap;
 
 const LETTERS: Readonly<LetterMap> = {
-  'A': {points: 1, count: 9},
-  'B': {points: 3, count: 2},
-  'C': {points: 3, count: 2},
-  'D': {points: 2, count: 4},
-  'E': {points: 1, count: 12},
-  'F': {points: 4, count: 2},
-  'G': {points: 2, count: 3},
-  'H': {points: 4, count: 2},
-  'I': {points: 1, count: 9},
-  'J': {points: 8, count: 1},
-  'K': {points: 5, count: 1},
-  'L': {points: 1, count: 4},
-  'M': {points: 3, count: 2},
-  'N': {points: 1, count: 6},
-  'O': {points: 1, count: 8},
-  'P': {points: 3, count: 2},
+  'A': {points: 1,  count: 9},
+  'B': {points: 3,  count: 2},
+  'C': {points: 3,  count: 2},
+  'D': {points: 2,  count: 4},
+  'E': {points: 1,  count: 12},
+  'F': {points: 4,  count: 2},
+  'G': {points: 2,  count: 3},
+  'H': {points: 4,  count: 2},
+  'I': {points: 1,  count: 9},
+  'J': {points: 8,  count: 1},
+  'K': {points: 5,  count: 1},
+  'L': {points: 1,  count: 4},
+  'M': {points: 3,  count: 2},
+  'N': {points: 1,  count: 6},
+  'O': {points: 1,  count: 8},
+  'P': {points: 3,  count: 2},
   'Q': {points: 10, count: 1},
-  'R': {points: 1, count: 6},
-  'S': {points: 1, count: 4},
-  'T': {points: 1, count: 6},
-  'U': {points: 1, count: 4},
-  'V': {points: 4, count: 2},
-  'W': {points: 4, count: 2},
-  'X': {points: 8, count: 1},
-  'Y': {points: 4, count: 2},
+  'R': {points: 1,  count: 6},
+  'S': {points: 1,  count: 4},
+  'T': {points: 1,  count: 6},
+  'U': {points: 1,  count: 4},
+  'V': {points: 4,  count: 2},
+  'W': {points: 4,  count: 2},
+  'X': {points: 8,  count: 1},
+  'Y': {points: 4,  count: 2},
   'Z': {points: 10, count: 1},
-  '_': {points: 0, count: 2},
+  '_': {points: 0,  count: 2},
 };
 
 const LETTER_KEYS: Readonly<Letter[]> = Object.keys(LETTERS) as Letter[];
@@ -155,13 +165,8 @@ class Tiles {
   }
 
   get transposed(): Tiles {
-    const transposed: Tile[][] = Array(BOARD_SIZE).fill(Array(BOARD_SIZE));
-    for (let i = 0; i < BOARD_SIZE; i++) {
-      for (let j = 0; j < BOARD_SIZE; j++) {
-        transposed[j][i] = this.tiles[i][j];
-      }
-    }
-    return new Tiles(transposed);
+    return new Tiles(this.tiles[0].map((_, col) =>
+      this.tiles.map(row => row[col])));
   }
 
   getRow(row: number): Tile[] {
@@ -211,7 +216,6 @@ class Board {
       return true;
     };
     let letterIdx = 0;
-    console.log(tiles);
     search(rowTiles, col - 1, BOARD_SIZE, addPointsUntilBlank,
       (t, col) => {
         if (t.isEmpty && letterIdx === letters.length) {
@@ -319,5 +323,3 @@ function play(
 ) {
   play(player2, row, col, word, dir);
 };
-
-(window as any).dictionary = dictionary;
