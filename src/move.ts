@@ -11,3 +11,12 @@ export interface Move {
   readonly dir: Dir;
   readonly word: Word;
 }
+
+export function transposeMove(move: Move): Move {
+  return {
+    row: move.col,
+    col: move.row,
+    dir: move.dir === Dir.Across ? Dir.Down : Dir.Across,
+    word: move.word,
+  };
+}

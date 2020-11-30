@@ -2,75 +2,82 @@ import { List } from 'immutable';
 import { Bag } from './bag';
 import { Board } from './board';
 import { Letter, letterProps, Word } from './dict';
-import { Dir, Move } from './move';
+import { Dir, Move, transposeMove } from './move';
 import { Player } from './player';
 import { TrieNode } from './trie';
 
 export class Scrabble {
-  public readonly bag = new Bag();
-  public readonly board = new Board();
+  public readonly bag: Bag;
+  public readonly board: Board;
   public readonly players: List<Player>;
 
   private readonly dict: TrieNode;
+  private readonly round: number;
 
-  private round: number = 0;
-
-  public constructor(dict: TrieNode, ...players: Player[]) {
-    console.assert(players.length > 0);
+  public constructor(players: List<Player>, dict: TrieNode, round?: number, bag?: Bag, board?: Board) {
+    console.assert(!players.isEmpty());
+    this.players = players;
     this.dict = dict;
-    this.players = List(players);
-    this.players.forEach(player =>
-      player.drawFrom(this.bag));
+    this.round = round || 0;
+    this.bag = bag || new Bag();
+    this.board = board || new Board();
   }
 
-  public play(): void {
-    let player: Player = this.nextPlayer();
-    while (true) {
-      console.log(this.toString());
-      let board = this.board;
-      let move = player.play(board);
-      if (move.dir === Dir.Down) {
-        board = board.getTransposed();
-        move = {
-          row: move.col,
-          col: move.row,
-          dir: Dir.Across,
-          word: move.word,
-        };
-      }
-      board.resetYCrossChecks();
-      board.setYCrossChecks(this.dict);
-      if (!board.fitsAcross(move.row, move.col, move.word.size)) {
-        console.log('Move would fall off the board.');
-        continue;
-      }
-      if (!this.isValidOnBoard(board, move)) {
-        console.log('Invalid word(s) would be created.');
-        continue;
-      }
-      const neededFromRack = this.getNeededFromRack(board, move);
-      if (!player.hasInRack(neededFromRack)) {
-        console.log(`You don't have the required letters [${
-          neededFromRack.join()}] in your rack.`);
-        continue;
-      }
-      if (this.round === 1 && !this.passesThroughCenter(board, move)) {
-        console.log('The first move must pass through the center of the board.');
-        continue;
-      }
-      if (this.round > 1 && !this.touchesAnything(board, move)) {
-        console.log('At least one tile must touch an existing tile.');
-        continue;
-      }
-      const points = this.getPoints(board, move);
-      console.log(`You scored ${points} points!`);
-      player.addPoints(points);
-      player.removeFromRack(neededFromRack);
-      player.drawFrom(this.bag);
-      move.word.forEach((letter, i) =>
-        board.setAt(move.row, move.col + i, letter));
-      player = this.nextPlayer();
+  private get currentPlayer(): number {
+    return this.round % this.players.size;
+  }
+
+  public playRound(): Promise<Scrabble> {
+    const player = this.players.get(this.currentPlayer)!;
+    let board = this.board;
+    let move = player.play(board);
+    if (move === undefined) {
+      return Promise.resolve(new Scrabble(
+        this.players,
+        this.dict,
+        this.round + 1,
+        this.bag,
+        this.board));
     }
+    let transposed = false;
+    if (move.dir === Dir.Down) {
+      board = board.transpose();
+      move = transposeMove(move);
+      transposed = true;
+    }
+
+    // Validity checks.
+    if (!board.fitsAcross(move.row, move.col, move.word.size)) {
+      return Promise.reject('Move would fall off the board.');
+    }
+    console.log(board.setYCrossChecks(this.dict));
+    if (!this.makesValidWords(board.setYCrossChecks(this.dict), move)) {
+      return Promise.reject('Invalid word(s) would be created.');
+    }
+    const neededFromRack = this.getNeededFromRack(board, move);
+    if (!player.allInRack(neededFromRack)) {
+      return Promise.reject(`You don't have the required letters [${
+        neededFromRack.join()}] in your rack.`);
+    }
+    if (this.round === 0 && !this.passesThroughCenter(board, move)) {
+      return Promise.reject('The first move must pass through the center of the board.');
+    }
+    if (this.round > 0 && !this.touchesAnything(board, move)) {
+      return Promise.reject('At least one tile must touch an existing tile.');
+    }
+
+    // Perform move.
+    const points = Scrabble.getPoints(board, move);
+    const [newBag, newPlayer] = player.removeFromRack(neededFromRack)
+      .addPoints(points)
+      .drawFrom(this.bag);
+    board = board.setAcross(move.row, move.col, move.word)!;
+    return Promise.resolve(new Scrabble(
+      this.players.set(this.currentPlayer, newPlayer),
+      this.dict,
+      this.round + 1,
+      newBag,
+      transposed ? board.transpose() : board));
   }
 
   public toString(): string {
@@ -78,12 +85,26 @@ export class Scrabble {
       this.players.map(player => player.toString()).join('\n');
   }
 
-  private getPoints(board: Board, move: Move): number {
+  public dealTiles(): Scrabble {
+    return this.players.reduce((game: Scrabble, player, i) => {
+      const [newBag, newPlayer] = player.drawFrom(game.bag);
+      return new Scrabble(game.players.set(i, newPlayer), game.dict, game.round,
+        newBag, game.board);
+    }, this);
+  }
+
+  public static getPoints(board: Board, move: Move): number {
+    if (move.dir === Dir.Down) {
+      board = board.transpose();
+      move = transposeMove(move);
+    }
     const sumPoints = (points: number, letter: Letter): number =>
       points + letterProps[letter].points;
     // Sum across word.
-    const left = board.gatherLeft(move.row, move.col);
-    const right = board.gatherRight(move.row, move.col + move.word.size - 1);
+    const left = board.getAt(move.row, move.col)
+      .gatherLeft();
+    const right = board.getAt(move.row, move.col + move.word.size - 1)
+      .gatherRight();
     const acrossWord = left.concat(move.word).concat(right);
     // If the across word size is == 1, then it must simply be an extension to
     // a down word. There are no words of length == 1, so don't count them.
@@ -93,39 +114,46 @@ export class Scrabble {
       if (!board.isEmptyAt(move.row, move.col + i)) {
         return points;
       }
-      const above = board.gatherAbove(move.row, move.col + i);
-      const below = board.gatherBelow(move.row, move.col + i);
-      if (!above.isEmpty() || !below.isEmpty()) {
-        return points + above.push(letter).concat(below).reduce(sumPoints, 0);
+      const above = board.getAt(move.row, move.col + i).gatherAbove();
+      const below = board.getAt(move.row, move.col + i).gatherBelow();
+      if (above.isEmpty() && below.isEmpty()) {
+        return points;
       }
-      return points;
+      return points + above.push(letter).concat(below).reduce(sumPoints, 0);
     }, 0);
     return across + down;
   }
 
+  public isOver(): boolean {
+    // TODO: Also check if there are any more plays possible.
+    return this.bag.isEmpty() &&
+      this.players.every(player => player.rack.isEmpty());
+  }
+
   private passesThroughCenter(board: Board, move: Move): boolean {
     return move.word.some((letter, i) =>
-      board.isCenter(move.row, move.col + i));
+      board.getAt(move.row, move.col + i).isCenter());
   }
 
   private touchesAnything(board: Board, move: Move): boolean {
     return move.word.some((letter, i) =>
-      board.isNotEmptyAround(move.row, move.col + i));
+      !board.getAt(move.row, move.col + i).isEmptyAround());
   }
 
-  private isValidOnBoard(board: Board, move: Move): boolean {
+  private makesValidWords(board: Board, move: Move): boolean {
     // Valid down.
     return move.word.every((letter, i) => {
-        const onBoard = board.getAt(move.row, move.col + i);
+        const onBoard = board.getAt(move.row, move.col + i).letter;
         if (onBoard) {
           return onBoard === letter;
         }
         return board.inCrossCheck(move.row, move.col + i, letter);
       }) &&
       // Valid across.
-      this.isWord(board.gatherLeft(move.row, move.col)
+      this.isWord(board.getAt(move.row, move.col).gatherLeft()
         .concat(move.word)
-        .concat(board.gatherRight(move.row, move.col + move.word.size - 1)));
+        .concat(board.getAt(move.row, move.col + move.word.size - 1)
+          .gatherRight()));
   }
 
   private getNeededFromRack(board: Board, move: Move): List<Letter> {
@@ -134,10 +162,6 @@ export class Scrabble {
   }
 
   private isWord(word: Word): boolean {
-    return this.dict.search(word)?.isAccept() === true;
-  }
-
-  private nextPlayer(): Player {
-    return this.players.get(this.round++ % this.players.size)!;
+    return !!this.dict.search(word)?.isAccept();
   }
 }

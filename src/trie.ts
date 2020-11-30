@@ -1,11 +1,19 @@
-import { List, Map } from 'immutable';
+import { Map } from 'immutable';
 import { Letter, Word } from './dict';
 
-export type TrieEdges = {
-  [k in Letter]?: TrieNode;
+export interface TrieNode {
+  isAccept(): boolean;
+
+  getEdges(): Map<Letter, TrieNode>;
+
+  search(word: Word): TrieNode | undefined;
+}
+
+type TrieEdges = {
+  [k in Letter]?: MutableTrieNode;
 };
 
-export class TrieNode {
+export class MutableTrieNode implements TrieNode {
   private accept: boolean = false;
   private edges: TrieEdges = {};
 
@@ -13,16 +21,16 @@ export class TrieNode {
     return this.accept;
   }
 
-  public getEdges(): Map<Letter, TrieNode> {
+  public getEdges(): Map<Letter, MutableTrieNode> {
     return Map(Object.entries(this.edges))
-      .filter(node => node !== undefined)
+      .filter(node => node)
       .map(node => node!)
       .mapKeys(letter => letter as Letter);
   }
 
   public search(word: Word): TrieNode | undefined {
     return word.reduce(
-      (node: TrieNode | undefined, letter) =>
+      (node: MutableTrieNode | undefined, letter) =>
         node?.edges[letter],
       this);
   }
@@ -30,8 +38,8 @@ export class TrieNode {
   public insert(word: Word): void {
     word
       .reduce(
-        (node: TrieNode, letter) =>
-          node.edges[letter] || (node.edges[letter] = new TrieNode()),
+        (node: MutableTrieNode, letter) =>
+          node.edges[letter] || (node.edges[letter] = new MutableTrieNode()),
         this)
       .accept = true;
   }

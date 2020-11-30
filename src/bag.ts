@@ -1,18 +1,21 @@
 import { List } from 'immutable';
-import { Letter, letterProps, letters } from './dict';
+import { Letter } from './dict';
+import * as dict from './dict';
 import { shuffled } from './util';
 
 export class Bag {
-  private letters: List<Letter> = shuffled(letters.reduce(
-    (list, letter) =>
-      list.push(...Array(letterProps[letter].count).fill(letter)),
-    List<Letter>()));
+  public readonly letters: List<Letter>;
 
-  public draw(n: number): List<Letter> {
+  public constructor(letters?: List<Letter>) {
+    this.letters = letters || shuffled(dict.letters.reduce(
+      (list, letter) =>
+        list.push(...Array(dict.letterProps[letter].count).fill(letter)),
+      List<Letter>()));
+  }
+
+  public draw(n: number): [List<Letter>, Bag] {
     console.assert(n >= 0);
-    const drawn = this.letters.take(n);
-    this.letters = this.letters.skip(n);
-    return drawn;
+    return [this.letters.take(n), new Bag(this.letters.skip(n))];
   }
 
   public isEmpty(): boolean {
