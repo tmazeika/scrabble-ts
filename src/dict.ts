@@ -1,4 +1,5 @@
 import { List, Seq } from 'immutable';
+import fetch from 'node-fetch';
 
 export type Letter = 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G' | 'H' | 'I' | 'J'
   | 'K' | 'L' | 'M' | 'N' | 'O' | 'P' | 'Q' | 'R' | 'S' | 'T' | 'U' | 'V' | 'W'
@@ -59,7 +60,7 @@ export function stringToWord(s: string): Word | undefined {
 }
 
 export async function load(): Promise<Seq<unknown, Word>> {
-  const resp = await fetch('/dictionary.txt');
+  const resp = await fetch('http://localhost:8080/dictionary.txt');
   return Seq((await resp.text()).split('\n'))
     .filter(word => word)
     .map(forceStringToWord);

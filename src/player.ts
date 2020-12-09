@@ -3,8 +3,10 @@ import { Bag } from './bag';
 import { Board, Tile } from './board';
 import { Letter, stringToWord, Word } from './dict';
 import { Scrabble } from './game';
+import { doMCTS, getAcrossMoves, getAllMoves } from './mcts';
 import { Dir, Move, transposeMove } from './move';
 import { TrieNode } from './trie';
+import prompt from 'prompt-sync';
 
 const rackSize = 7;
 
@@ -21,7 +23,7 @@ export interface Player {
 
   addPoints(points: number): Player;
 
-  play(board: Board): Move | undefined;
+  play(game: Scrabble): Move | undefined;
 
   toString(): string;
 }
@@ -67,7 +69,7 @@ abstract class BasePlayer implements Player {
     return this.copy(this.name, this.rack, this.points + points);
   }
 
-  public abstract play(board: Board): Move | undefined;
+  public abstract play(game: Scrabble): Move | undefined;
 
   public toString(): string {
     return `${this.name} (${this.points} points): ${this.rack.join()}`;
@@ -81,12 +83,13 @@ export class HumanPlayer extends BasePlayer {
     super(name, rack, points);
   }
 
-  public play(board: Board): Move | undefined {
+  public play(game: Scrabble): Move | undefined {
     let moveStr: string | null = null;
     while (moveStr === null) {
-      moveStr = prompt(`Move for ${this.name}: row,col,across|down,word`);
+      moveStr = prompt()(`Move for ${this.name}: row,col,across|down,word`);
+      // moveStr = prompt(`Move for ${this.name}: row,col,across|down,word`);
     }
-    if (moveStr === '') {
+    if (!moveStr) {
       return undefined;
     }
     const [rowStr, colStr, dirStr, wordStr] = moveStr.split(',', 4);
@@ -103,120 +106,79 @@ export class HumanPlayer extends BasePlayer {
   }
 }
 
+export type Strategy = (game: Scrabble, moves: List<Move>) => Move;
+
 export class ComputerPlayer extends BasePlayer {
   private readonly dict: TrieNode;
+  private readonly strategy: Strategy;
 
-  public constructor(name: string, dict: TrieNode, rack?: List<Letter>, points?: number) {
+  public constructor(name: string, dict: TrieNode,
+                     strategy: Strategy,
+                     rack?: List<Letter>,
+                     points?: number) {
     super(name, rack, points);
+    this.strategy = strategy;
     this.dict = dict;
   }
 
-  private static inRack(rack: List<Letter>, letter: Letter): boolean {
-    return rack.indexOf(letter) !== -1;
+  public static firstStrategy(): Strategy {
+    return (game, moves) =>
+      moves.reduce((first, _) => first, moves.get(0)!);
   }
 
-  private static removeFromRack(rack: List<Letter>, letter: Letter): List<Letter> {
-    return rack.delete(rack.indexOf(letter));
+  public static randomStrategy(): Strategy {
+    return (game, moves) =>
+      moves.get(Math.floor(Math.random() * moves.size))!;
   }
 
-  private static getK(board: Board, anchor: Tile): number {
-    return board.getRow(anchor.row)
-      .slice(0, anchor.col)
-      .reverse()
-      .takeUntil(tile => !tile.isEmpty() || !tile.isEmptyAround())
-      .size;
+  public static mctsStrategy(): Strategy {
+    return (game, moves) => {
+      return doMCTS(game, moves)!;
+    };
   }
 
-  public play(board: Board): Move | undefined {
-    const across = this.getAcrossMoves(board
-      .setYCrossChecks(this.dict));
-    const down = this.getAcrossMoves(board.transpose()
-      .setYCrossChecks(this.dict));
-    const moves = across.concat(down.map(move => transposeMove(move)));
-    console.log(moves.toJS());
+  public static shortestStrategy(): Strategy {
+    return (game, moves) =>
+      moves.reduce((bestMove, move) => {
+        if (move.word.size < bestMove.word.size) {
+          return move;
+        }
+        return bestMove;
+      }, moves.get(0)!);
+  }
+
+  public static longestStrategy(): Strategy {
+    return (game, moves) =>
+      moves.reduce((bestMove, move) => {
+        if (move.word.size > bestMove.word.size) {
+          return move;
+        }
+        return bestMove;
+      }, moves.get(0)!);
+  }
+
+  public static mostPointsStrategy(): Strategy {
+    return (game, moves) => {
+      const first = moves.get(0)!;
+      return moves.reduce((bestMove, move) => {
+        const points = Scrabble.getPoints(game.board, move);
+        if (points > bestMove.points) {
+          return { move, points };
+        }
+        return bestMove;
+      }, { move: first, points: Scrabble.getPoints(game.board, first) }).move;
+    };
+  }
+
+  public play(game: Scrabble): Move | undefined {
+    const moves = getAllMoves(this.dict, this.rack, game.board);
     if (moves.isEmpty()) {
       return undefined;
     }
-    return moves.reduce((bestMove, move) => {
-      if (move.word.size < bestMove.word.size) {
-        return move;
-      }
-      return bestMove;
-    }, moves.get(0)!);
-    // return moves.reduce((bestMove, move) => {
-    //   if (move.word.size > bestMove.word.size) {
-    //     return move;
-    //   }
-    //   return bestMove;
-    // }, moves.get(0)!);
-    // return moves.reduce((bestMove, move) => {
-    //   const points = Scrabble.getPoints(board, move);
-    //   if (points > bestMove.points) {
-    //     return { move, points };
-    //   }
-    //   return bestMove;
-    // }, { move: firstMove, points: Scrabble.getPoints(board, firstMove) }).move;
+    return this.strategy(game, moves);
   }
 
   protected copy(name: string, rack: List<Letter>, points: number): Player {
-    return new ComputerPlayer(name, this.dict, rack, points);
-  }
-
-  private getAcrossMoves(board: Board): List<Move> {
-    const moveReducer = (moves: List<Move>, anchor: Tile) => {
-      const extendRight = (rack: List<Letter>, partialWord: Word, node: TrieNode, square: Tile) => {
-        if (square.isEmpty()) {
-          if (node.isAccept() && anchor.col < square.col) {
-            moves = moves.push({
-              row: square.row,
-              col: square.col - partialWord.size,
-              dir: Dir.Across,
-              word: partialWord,
-            });
-          }
-          node.getEdges()
-            .filter((_, letter) =>
-              ComputerPlayer.inRack(rack, letter) &&
-              board.inCrossCheck(square.row, square.col, letter) &&
-              square.getToRight())
-            .forEach((node, letter) =>
-              extendRight(ComputerPlayer.removeFromRack(rack, letter),
-                partialWord.push(letter),
-                node,
-                square.getToRight()!));
-        } else {
-          const l = square.letter!;
-          const nodePrime = node.getEdges().get(l);
-          if (nodePrime && square.getToRight()) {
-            extendRight(rack, partialWord.push(l), nodePrime,
-              square.getToRight()!);
-          }
-        }
-      };
-      const leftPart = (rack: List<Letter>, partialWord: Word, node: TrieNode, limit: number) => {
-        extendRight(rack, partialWord, node, anchor);
-        if (limit > 0) {
-          node.getEdges()
-            .filter((_, letter) =>
-              ComputerPlayer.inRack(rack, letter))
-            .forEach((node, letter) =>
-              leftPart(ComputerPlayer.removeFromRack(rack, letter),
-                partialWord.push(letter), node, limit - 1));
-        }
-      };
-      if (anchor.isEmptyToLeft()) {
-        leftPart(this.rack, List<Letter>(), this.dict,
-          ComputerPlayer.getK(board, anchor));
-      } else {
-        const left = anchor.gatherLeft();
-        const node = this.dict.search(left)!;
-        extendRight(this.rack, left, node, anchor);
-      }
-      return moves;
-    };
-    if (board.getCenter().isEmpty()) {
-      return List.of(board.getCenter()).reduce(moveReducer, List<Move>());
-    }
-    return board.getAnchors().reduce(moveReducer, List<Move>());
+    return new ComputerPlayer(name, this.dict, this.strategy, rack, points);
   }
 }

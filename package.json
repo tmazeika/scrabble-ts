@@ -36,6 +36,10 @@
     "webpack-dev-server": "^3.11.0"
   },
   "dependencies": {
-    "immutable": "^4.0.0-rc.12"
+    "@types/node-fetch": "^2.5.7",
+    "@types/prompt-sync": "^4.1.0",
+    "immutable": "^4.0.0-rc.12",
+    "node-fetch": "^2.6.1",
+    "prompt-sync": "^4.2.0"
   }
 }

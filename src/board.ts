@@ -126,7 +126,7 @@ export class Board {
         .toList())
       .toList();
     // Since this is a cyclic reference, mutation would be easiest here.
-    this.tiles.forEach(row => row.forEach(tile => tile.board = this))
+    this.tiles.forEach(row => row.forEach(tile => tile.board = this));
     // Assert that the board is (boardSize * boardSize).
     console.assert(this.tiles.size === boardSize);
     this.tiles.forEach(row => console.assert(row.size === boardSize));
@@ -141,16 +141,20 @@ export class Board {
   public setYCrossChecks(dict: TrieNode): Board {
     return new Board(this.tiles.map(row =>
       row.map(tile => {
-          if (!tile.isYAnchor()) {
-            return tile;
-          }
-          const above = tile.gatherAbove();
-          const below = tile.gatherBelow();
-          return tile.setCrossCheck(Set(dict.search(above)!
-            .getEdges()
-            .filter(node => node.search(below)?.isAccept())
-            .keys()));
-        })));
+        if (!tile.isYAnchor()) {
+          return tile;
+        }
+        const above = tile.gatherAbove();
+        const below = tile.gatherBelow();
+        // TODO:
+        if (dict.search(above) === undefined) {
+          console.log(above);
+        }
+        return tile.setCrossCheck(Set(dict.search(above)!
+          .getEdges()
+          .filter(node => node.search(below)?.isAccept())
+          .keys()));
+      })));
   }
 
   public getCenter(): Tile {
